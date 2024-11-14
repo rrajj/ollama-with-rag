@@ -1,8 +1,12 @@
+# TODO: add it to be history aware.
+
+
+# https://python.langchain.com/docs/tutorials/qa_chat_history/
 import os
 
-from langchain.embeddings import GPT4AllEmbeddings
-from langchain.vectorstores import Chroma
-from langchain.llms import Ollama
+from langchain_community.embeddings import GPT4AllEmbeddings
+from langchain_chroma import Chroma
+from langchain_ollama import OllamaLLM
 from langchain.callbacks.manager import CallbackManager
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from langchain.chains import RetrievalQA
@@ -13,9 +17,6 @@ import chainlit as cl
 from dotenv import load_dotenv
 
 load_dotenv()
-
-# Set up Retrieval QA model
-# QA_CHAIN_PROMPT = hub.pull("rlm/rag-prompt-mistral")
 
 prompt_template = """
     Use the following pieces of context to answer the question at the end.
@@ -40,8 +41,7 @@ def set_custom_prompt():
 
 
 def load_llm():
-    """Load the Language Model."""
-    llm = Ollama(
+    llm = OllamaLLM(
         model="mistral",
         verbose=True,
         callback_manager=CallbackManager([StreamingStdOutCallbackHandler()]),
@@ -51,18 +51,20 @@ def load_llm():
 
 def retrieval_qa_chain(llm, prompt, vectorstore):
     """
-   Creates a Retrieval Question-Answering (QA) chain using a given language model, prompt, and database.
+    Creates a Retrieval Question-Answering (QA) chain using a given 
+    language model, prompt, and database.
 
-   This function initializes a RetrievalQA object with a specific chain type and configurations,
-   and returns this QA chain. The retriever is set up to return the top 3 results (k=3).
+    This function initializes a RetrievalQA object with a specific chain 
+    type and configurations, and returns this QA chain. The retriever 
+    is set up to return the top 3 results (k=3).
 
-   Args:
-       llm (any): The language model to be used in the RetrievalQA.
-       prompt (str): The prompt to be used in the chain type.
-       vectorstore (any): The database to be used as the retriever.
+    args:
+        llm : The language model to be used in the RetrievalQA.
+        prompt : The prompt to be used in the chain type.
+        vectorstore : The database to be used as the retriever.
 
-   Returns:
-       RetrievalQA: The initialized QA chain.
+    returns:
+        RetrievalQA
    """
     qa_chain = RetrievalQA.from_chain_type(
         llm,
@@ -75,12 +77,7 @@ def retrieval_qa_chain(llm, prompt, vectorstore):
 
 
 def create_retrieval_qa_bot():
-    """
-    This function creates a retrieval-based question-answering bot.
 
-    Returns:
-        RetrievalQA: The retrieval-based question-answering bot.
-    """
     vectorstore = Chroma(persist_directory=os.getenv('DB_PATH'), embedding_function=GPT4AllEmbeddings())
 
     try:
@@ -103,15 +100,12 @@ def create_retrieval_qa_bot():
 @cl.on_chat_start
 async def start():
     """
-    Initializes the bot when a new chat starts.
-
-    This asynchronous function creates a new instance of the retrieval QA bot,
-    sends a welcome message, and stores the bot instance in the user's session.
+    initialize bot when new chat starts
     """
     chain = create_retrieval_qa_bot()
     msg = cl.Message(content="Firing up the research info bot...")
     await msg.send()
-    msg.content = "Hi, welcome to research info bot by ohdoking. What is your query?"
+    msg.content = "Hi, what is your query?"
     await msg.update()
     cl.user_session.set("chain", chain)
 
@@ -123,17 +117,20 @@ async def get_chain_response(chain, message_content):
         answer_prefix_tokens=["FINAL", "ANSWER"]
     )
     cb.answer_reached = True
-    # Execute the bot's call method with the given message and callback.
+    # run the bot's call method with the given message and callback.
     res = await chain.acall(message_content, callbacks=[cb])
-    print(f"response: {res}")
+    # print(f"response: {res}")
     return res
 
 def process_source_documents(source_documents):
-    """ This function processes the source documents and returns a list of text elements. """
+    """
+    This function processes the source documents and returns a list of text elements.
+    """
     text_elements = []
     for source_idx, source_doc in enumerate(source_documents):
         source_name = f"{os.path.basename(source_doc.metadata['source'])}_{source_idx}"
-        # Create the text element referenced in the message
+        
+        # creating txt elements referenced in the message
         text_elements.append(
             cl.Text(content=source_doc.page_content.replace('\n', ' '), name=source_name)
         )
@@ -142,25 +139,14 @@ def process_source_documents(source_documents):
 
 @cl.on_message
 async def process_chat_message(message):
-    """
-    Processes incoming chat messages.
-
-    This asynchronous function retrieves the QA bot instance from the user's session,
-    sets up a callback handler for the bot's response, and executes the bot's
-    call method with the given message and callback. The bot's answer and source
-    documents are then extracted from the response.
-    """
+    
     chain = cl.user_session.get("chain")
     res = await get_chain_response(chain, message.content)
-    answer = res["result"]
-    source_documents = res["source_documents"]
 
+    source_documents = res.get("source_documents", [])
     text_elements, source_names = process_source_documents(source_documents)
-
+    
     if source_names:
-        answer += f"\nSources: {', '.join(source_names)}"
-    else:
-        answer += "\nNo sources found"
+        source_info = f"\nSources: {', '.join(source_names)}"
+        await cl.Message(content=source_info).send()
 
-    # Send a response back to the user
-    await cl.Message(content=answer, elements=text_elements).send()
