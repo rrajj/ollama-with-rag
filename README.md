@@ -30,7 +30,7 @@ Follow these steps to get the project up and running:
 ### Upload Required Data and Load into VectorStore
 Run the following command to load your data into the VectorStore:
 ```bash
-  python3 load_data_vdb.py
+  python make_vectors.py
 ```
 
 ### Run the Chatbot
